@@ -1,0 +1,40 @@
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: Arial, sans-serif;
+}
+
+.form-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f4f4f4;
+  border-radius: 5px;
+}
+
+.form-container input {
+  padding: 8px;
+  flex: 1;
+}
+
+.form-container button {
+  padding: 8px 15px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.stats-filter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.stats-filter button {
+  margin-left: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
