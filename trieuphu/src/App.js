@@ -16,7 +16,9 @@ const App = () => {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [playerName, setPlayerName] = useState('');
 
+  // Tải danh sách câu hỏi từ API /data/questions.json
   useEffect(() => {
     const controller = new AbortController();
 
@@ -42,8 +44,24 @@ const App = () => {
   return (
     <Routes>
       <Route path="/" element={<Layout loading={loading} error={error} />}>
-        <Route index element={<Home />} />
-        <Route path="play" element={<Play />} />
+        <Route
+          index
+          element={
+            <Home
+              playerName={playerName}
+              setPlayerName={setPlayerName}
+            />
+          }
+        />
+        <Route
+          path="play"
+          element={
+            <Play
+              playerName={playerName}
+              questions={questions}
+            />
+          }
+        />
         <Route path="result" element={<Result />} />
         <Route path="history" element={<History />} />
         <Route
