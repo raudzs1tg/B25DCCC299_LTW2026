@@ -12,11 +12,23 @@ import QuestionBank from './pages/QuestionBank';
 import QuestionDetail from './pages/QuestionDetail';
 import NotFound from './pages/NotFound';
 
+const STORAGE_KEY = 'ltw_trieuphu_history';
+
 const App = () => {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [playerName, setPlayerName] = useState('');
+
+  // Khởi tạo state history từ localStorage (Bài 3)
+  const [history, setHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Tải danh sách câu hỏi từ API /data/questions.json
   useEffect(() => {
@@ -41,6 +53,26 @@ const App = () => {
     };
   }, []);
 
+  // Lưu lịch sử vào localStorage mỗi khi state history thay đổi
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    } catch (err) {
+      console.error('Không thể lưu vào localStorage', err);
+    }
+  }, [history]);
+
+  // Thêm một bản ghi vào lịch sử
+  const handleAddHistory = (record) => {
+    setHistory((prev) => [record, ...prev]);
+  };
+
+  // Xóa toàn bộ lịch sử
+  const handleClearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem(STORAGE_KEY);
+  };
+
   return (
     <Routes>
       <Route path="/" element={<Layout loading={loading} error={error} />}>
@@ -50,6 +82,7 @@ const App = () => {
             <Home
               playerName={playerName}
               setPlayerName={setPlayerName}
+              history={history}
             />
           }
         />
@@ -59,11 +92,17 @@ const App = () => {
             <Play
               playerName={playerName}
               questions={questions}
+              onAddHistory={handleAddHistory}
             />
           }
         />
         <Route path="result" element={<Result />} />
-        <Route path="history" element={<History />} />
+        <Route
+          path="history"
+          element={
+            <History history={history} onClearHistory={handleClearHistory} />
+          }
+        />
         <Route
           path="questions"
           element={<QuestionBank questions={questions} />}

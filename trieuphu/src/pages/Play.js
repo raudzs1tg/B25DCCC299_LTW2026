@@ -3,12 +3,15 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import QuestionCard from '../components/QuestionCard';
 import Timer from '../components/Timer';
 import MoneyLadder from '../components/MoneyLadder';
+import Lifelines from '../components/Lifelines';
+import AudienceChart from '../components/AudienceChart';
 import { TIME_PER_QUESTION } from '../data';
-import { calcPrize } from '../utils';
+import { calcPrize, generateAudiencePercentages } from '../utils';
 
 const Play = ({
   playerName,
   questions = [],
+  onAddHistory,
 }) => {
   const navigate = useNavigate();
 
@@ -17,12 +20,28 @@ const Play = ({
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION);
 
+  // Quyền trợ giúp (Bài 3)
+  const [used5050, setUsed5050] = useState(false);
+  const [hiddenAnswers, setHiddenAnswers] = useState([]);
+  const [usedAudience, setUsedAudience] = useState(false);
+  const [audienceVotes, setAudienceVotes] = useState(null);
+
   const currentQuestion = questions[currentQuestionIndex];
 
   // Hàm kết thúc lượt chơi
   const handleFinishGame = useCallback(
     (correctCount, reason) => {
       const prize = calcPrize(correctCount, reason);
+
+      if (onAddHistory) {
+        onAddHistory({
+          id: Date.now(),
+          name: playerName,
+          prize,
+          correctCount,
+          playedAt: new Date().toLocaleString('vi-VN'),
+        });
+      }
 
       navigate('/result', {
         replace: true,
@@ -34,10 +53,19 @@ const Play = ({
         },
       });
     },
-    [navigate, playerName]
+    [navigate, onAddHistory, playerName]
   );
 
-  // 1. Đồng hồ 30 giây: chỉ đếm khi status === "answering"
+  // 1. Tiêu đề tab: đổi theo câu khi đang chơi, trả lại "Ai là triệu phú" khi rời màn hình
+  useEffect(() => {
+    document.title = `Câu ${currentQuestionIndex + 1}/15 – ${playerName}`;
+
+    return () => {
+      document.title = 'Ai là triệu phú';
+    };
+  }, [currentQuestionIndex, playerName]);
+
+  // 2. Đồng hồ 30 giây: chỉ chạy khi status === "answering"
   useEffect(() => {
     if (status !== 'answering') return;
 
@@ -63,7 +91,7 @@ const Play = ({
     }
   }, [timeLeft, status, currentQuestionIndex, handleFinishGame]);
 
-  // 2. Quy trình các bước chờ: locked (1s) -> revealed (2s) -> câu tiếp theo hoặc kết thúc
+  // 3. Quy trình các bước chờ: locked (1s) -> revealed (2s) -> câu tiếp hoặc kết thúc
   useEffect(() => {
     let timeoutId;
 
@@ -82,9 +110,11 @@ const Play = ({
             // Thắng cả 15 câu
             handleFinishGame(15, 'win');
           } else {
-            // Sang câu tiếp theo
+            // Sang câu tiếp theo (đồng hồ về 30 giây, ẩn biểu đồ khán giả)
             setCurrentQuestionIndex((prev) => prev + 1);
             setSelectedAnswer(null);
+            setHiddenAnswers([]);
+            setAudienceVotes(null);
             setTimeLeft(TIME_PER_QUESTION);
             setStatus('answering');
           }
@@ -109,7 +139,7 @@ const Play = ({
     handleFinishGame,
   ]);
 
-  // Chọn đáp án
+  // Xử lý chọn đáp án
   const handleSelectAnswer = useCallback(
     (index) => {
       if (status !== 'answering') return;
@@ -119,7 +149,59 @@ const Play = ({
     [status]
   );
 
-  // Chặn vào thẳng trang chơi khi chưa có tên
+  // 4. Phím tắt A, B, C, D (cả hoa và thường), phím của đáp án bị ẩn không có tác dụng
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (status !== 'answering') return;
+
+      const key = e.key.toUpperCase();
+      const keyMap = { A: 0, B: 1, C: 2, D: 3 };
+
+      if (Object.prototype.hasOwnProperty.call(keyMap, key)) {
+        const optionIndex = keyMap[key];
+        if (!hiddenAnswers.includes(optionIndex)) {
+          handleSelectAnswer(optionIndex);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [status, hiddenAnswers, handleSelectAnswer]);
+
+  // Quyền trợ giúp: 50:50 (ẩn ngẫu nhiên 2 đáp án sai)
+  const handleUse5050 = () => {
+    if (used5050 || status !== 'answering' || !currentQuestion) return;
+
+    const wrongIndices = [0, 1, 2, 3].filter(
+      (idx) => idx !== currentQuestion.answer
+    );
+    const shuffled = [...wrongIndices].sort(() => 0.5 - Math.random());
+    setHiddenAnswers(shuffled.slice(0, 2));
+    setUsed5050(true);
+  };
+
+  // Quyền trợ giúp: Hỏi khán giả
+  const handleUseAudience = () => {
+    if (usedAudience || status !== 'answering' || !currentQuestion) return;
+
+    const percentages = generateAudiencePercentages(
+      currentQuestion.answer,
+      hiddenAnswers
+    );
+    setAudienceVotes(percentages);
+    setUsedAudience(true);
+  };
+
+  // Quyền trợ giúp: Dừng cuộc chơi
+  const handleStopGame = () => {
+    if (status !== 'answering') return;
+    handleFinishGame(currentQuestionIndex, 'stop');
+  };
+
+  // Chặn vào thẳng trang chơi khi chưa có tên người chơi
   if (!playerName || !playerName.trim()) {
     return <Navigate to="/" replace />;
   }
@@ -137,7 +219,17 @@ const Play = ({
       <div className="game-main-area">
         <div className="top-bar-controls">
           <Timer timeLeft={timeLeft} />
+          <Lifelines
+            onUse5050={handleUse5050}
+            onUseAudience={handleUseAudience}
+            onStopGame={handleStopGame}
+            used5050={used5050}
+            usedAudience={usedAudience}
+            disabled={status !== 'answering'}
+          />
         </div>
+
+        {audienceVotes && <AudienceChart percentages={audienceVotes} />}
 
         <QuestionCard
           question={currentQuestion}
@@ -145,6 +237,7 @@ const Play = ({
           status={status}
           selectedAnswer={selectedAnswer}
           onSelectAnswer={handleSelectAnswer}
+          hiddenAnswers={hiddenAnswers}
         />
       </div>
 

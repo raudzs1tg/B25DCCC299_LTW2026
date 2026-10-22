@@ -1,8 +1,15 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatMoney } from '../data';
 
-const Home = ({ playerName, setPlayerName }) => {
+const Home = ({ playerName, setPlayerName, history = [] }) => {
   const navigate = useNavigate();
+
+  // Kỷ lục có tiền thưởng cao nhất (Bài 3)
+  const topRecord =
+    history.length > 0
+      ? [...history].sort((a, b) => b.prize - a.prize)[0]
+      : null;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -21,13 +28,21 @@ const Home = ({ playerName, setPlayerName }) => {
           Phiên bản Lập trình Web – Thử thách kiến thức HTML, CSS, ES6, React
         </p>
 
+        {topRecord && (
+          <div className="record-badge">
+            🌟 Kỷ lục: {formatMoney(topRecord.prize)} – {topRecord.name}
+          </div>
+        )}
+
         <div className="rules-box">
           <h3>📜 Luật chơi:</h3>
           <ul>
-            <li>Bộ câu hỏi gồm 15 câu trắc nghiệm lập trình Web theo thứ tự file JSON.</li>
+            <li>Bộ câu hỏi gồm 15 câu trắc nghiệm kiến thức lập trình Web theo thứ tự file JSON.</li>
             <li>Mỗi câu hỏi có 30 giây để đưa ra đáp án cuối cùng. Hết giờ tính như trả lời sai.</li>
             <li>Câu 5, 10, 15 là các mốc an toàn. Trả lời sai nhận tiền mốc an toàn cao nhất đã vượt qua.</li>
-            <li>Trả lời đúng cả 15 câu nhận giải thưởng tối đa 250.000.000 đ.</li>
+            <li>Dừng cuộc chơi nhận đúng số tiền của câu vừa trả lời đúng gần nhất.</li>
+            <li>Trả lời đúng cả 15 câu giành chiến thắng với 250.000.000 đ.</li>
+            <li>Có 3 quyền trợ giúp: 50:50, Hỏi khán giả và Dừng cuộc chơi.</li>
           </ul>
         </div>
 
