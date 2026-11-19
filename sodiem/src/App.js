@@ -1,18 +1,25 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import AddCourseForm from './components/AddCourseForm';
+import CourseRow from './components/CourseRow';
 import GoalPlanner from './components/GoalPlanner';
 import { useNotice } from './context/NoticeContext';
 import { useTheme } from './context/ThemeContext';
-import { formatPoint, SEMESTERS } from './data';
+import { GRADES, SEMESTERS } from './data';
 import {
   removeCourse,
   selectCourses,
   setCourses,
   setScore,
 } from './features/coursesSlice';
+import { useDebounce } from './hooks/useDebounce';
 import { useFetch } from './hooks/useFetch';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { hasSaved } from './store';
 import { calcStats, getGrade } from './utils';
+import './App.css';
+
+const BUILD_TAG = 'TH03';
 
 const App = () => {
   const { data, loading, error } = useFetch('/data/courses.json');
@@ -22,38 +29,122 @@ const App = () => {
   const { theme, toggleTheme } = useTheme();
   const showNotice = useNotice();
 
-  const [semesterFilter, setSemesterFilter] = useState('all');
+  const [semesterFilter, setSemesterFilter] = useLocalStorage(
+    'ltw_sodiem_semester',
+    'all'
+  );
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
-    if (data) {
+    if (!hasSaved && data) {
       dispatch(setCourses(data));
     }
   }, [data, dispatch]);
 
-  const visibleCourses = useMemo(() => {
+  const semesterCourses = useMemo(() => {
     if (semesterFilter === 'all') {
       return courses;
     }
     return courses.filter((course) => course.semester === semesterFilter);
   }, [courses, semesterFilter]);
 
-  const viewStats = useMemo(() => calcStats(visibleCourses), [visibleCourses]);
+  const displayedCourses = useMemo(() => {
+    const keyword = debouncedSearch.trim().toLowerCase();
+    if (!keyword) {
+      return semesterCourses;
+    }
+    return semesterCourses.filter(
+      (course) =>
+        course.name.toLowerCase().includes(keyword) ||
+        course.code.toLowerCase().includes(keyword)
+    );
+  }, [semesterCourses, debouncedSearch]);
+
+  const viewStats = useMemo(() => calcStats(semesterCourses), [semesterCourses]);
   const allStats = useMemo(() => calcStats(courses), [courses]);
 
-  const handleScoreChange = (id, e) => {
-    const val = e.target.valueAsNumber;
-    if (!Number.isNaN(val) && val >= 0 && val <= 10) {
-      dispatch(setScore({ id, score: val }));
+  const gradeDistribution = useMemo(() => {
+    const counts = semesterCourses.reduce((acc, course) => {
+      const { letter } = getGrade(course.score);
+      acc[letter] = (acc[letter] || 0) + 1;
+      return acc;
+    }, {});
+
+    return GRADES.map((item) => ({
+      letter: item.letter,
+      count: counts[item.letter] || 0,
+    }));
+  }, [semesterCourses]);
+
+  useEffect(() => {
+    if (courses.length > 0) {
+      document.title = `GPA ${allStats.gpa.toFixed(2)} – Sổ điểm`;
+    } else {
+      document.title = 'Sổ điểm';
+    }
+  }, [courses.length, allStats.gpa]);
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      const tag = e.target.tagName;
+      const isTyping =
+        tag === 'INPUT' ||
+        tag === 'SELECT' ||
+        tag === 'TEXTAREA' ||
+        e.target.isContentEditable;
+
+      if (e.key === '/' && !isTyping) {
+        e.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        }
+      } else if (
+        e.key === 'Escape' &&
+        document.activeElement === searchInputRef.current
+      ) {
+        setSearch('');
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, []);
+
+  const handleCourseShift = (e) => {
+    setSearch(e.target.value);
+  };
+
+  const handleScoreChange = useCallback(
+    (id, score) => {
+      dispatch(setScore({ id, score }));
+    },
+    [dispatch]
+  );
+
+  const handleRemove = useCallback(
+    (id, name) => {
+      dispatch(removeCourse(id));
+      showNotice(`Đã xóa môn ${name}`);
+    },
+    [dispatch, showNotice]
+  );
+
+  const handleResetSample = () => {
+    if (data) {
+      dispatch(setCourses(data));
+      showNotice('Đã đặt lại dữ liệu mẫu');
     }
   };
 
-  const handleRemove = (id, name) => {
-    dispatch(removeCourse(id));
-    showNotice(`Đã xóa môn ${name}`);
-  };
+  const showLoading = !hasSaved && loading;
+  const showError = !hasSaved && Boolean(error);
 
   return (
-    <div className={`app ${theme}`}>
+    <div className={`app ${theme}`} data-build={BUILD_TAG}>
       <header className="app-header">
         <h1>Sổ điểm sinh viên</h1>
         <button type="button" onClick={toggleTheme} className="btn-theme">
@@ -61,9 +152,9 @@ const App = () => {
         </button>
       </header>
 
-      {loading ? (
+      {showLoading ? (
         <p className="status-message">Đang tải bảng điểm...</p>
-      ) : error ? (
+      ) : showError ? (
         <p className="status-message error-text">Không tải được bảng điểm</p>
       ) : (
         <main className="app-main">
@@ -76,28 +167,63 @@ const App = () => {
               <p>Xếp loại: {viewStats.rank}</p>
               <p>GPA tích lũy: {allStats.gpa.toFixed(2)}</p>
             </div>
+
+            <div className="distribution-block">
+              <h3>Phân bố điểm chữ</h3>
+              <ul className="grade-distribution">
+                {gradeDistribution.map(({ letter, count }) => (
+                  <li key={letter} className="grade-dist-item">
+                    <span className="grade-dist-label">
+                      {letter}: {count}
+                    </span>
+                    <span
+                      className="grade-bar"
+                      style={{ width: `${count * 24}px` }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
           </section>
 
           <section className="card table-section">
             <h2>Bảng điểm</h2>
 
             <div className="toolbar">
-              <label htmlFor="semester-filter">Xem học kỳ</label>
-              <select
-                id="semester-filter"
-                value={semesterFilter}
-                onChange={(e) => setSemesterFilter(e.target.value)}
-              >
-                <option value="all">Tất cả</option>
-                {SEMESTERS.map((sem) => (
-                  <option key={sem} value={sem}>
-                    {sem}
-                  </option>
-                ))}
-              </select>
+              <div className="toolbar-group">
+                <label htmlFor="semester-filter">Xem học kỳ</label>
+                <select
+                  id="semester-filter"
+                  value={semesterFilter}
+                  onChange={(e) => setSemesterFilter(e.target.value)}
+                >
+                  <option value="all">Tất cả</option>
+                  {SEMESTERS.map((sem) => (
+                    <option key={sem} value={sem}>
+                      {sem}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="toolbar-group">
+                <label htmlFor="course-search">Tìm môn học</label>
+                <input
+                  id="course-search"
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Nhập tên hoặc mã môn..."
+                  value={search}
+                  onChange={handleCourseShift}
+                />
+              </div>
+
+              <span className="search-count">
+                Tìm thấy {displayedCourses.length} môn
+              </span>
             </div>
 
-            {visibleCourses.length === 0 ? (
+            {displayedCourses.length === 0 ? (
               <p>Chưa có môn học nào</p>
             ) : (
               <table className="courses-table">
@@ -110,47 +236,32 @@ const App = () => {
                     <th>Điểm (hệ 10)</th>
                     <th>Điểm chữ</th>
                     <th>Điểm (hệ 4)</th>
-                    <th>Thao tác</th>
+                    <th>Số lần render</th>
+                    <th>Xóa</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleCourses.map((course) => {
-                    const grade = getGrade(course.score);
-                    const isFail = grade.letter === 'F';
-
-                    return (
-                      <tr key={course.id} className={isFail ? 'fail-row' : ''}>
-                        <td>{course.code}</td>
-                        <td>{course.name}</td>
-                        <td>{course.credits}</td>
-                        <td>{course.semester}</td>
-                        <td>
-                          <input
-                            type="number"
-                            min="0"
-                            max="10"
-                            step="0.1"
-                            aria-label={`Điểm ${course.name}`}
-                            value={course.score}
-                            onChange={(e) => handleScoreChange(course.id, e)}
-                          />
-                        </td>
-                        <td>{isFail ? 'F – Học lại' : grade.letter}</td>
-                        <td>{formatPoint(grade.point)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => handleRemove(course.id, course.name)}
-                          >
-                            Xóa
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {displayedCourses.map((course) => (
+                    <CourseRow
+                      key={course.id}
+                      course={course}
+                      onScore={handleScoreChange}
+                      onRemove={handleRemove}
+                    />
+                  ))}
                 </tbody>
               </table>
             )}
+
+            <div className="table-actions">
+              <button
+                type="button"
+                onClick={handleResetSample}
+                disabled={!data}
+              >
+                Đặt lại dữ liệu mẫu
+              </button>
+            </div>
           </section>
 
           <AddCourseForm />
